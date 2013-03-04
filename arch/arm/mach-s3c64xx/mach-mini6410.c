@@ -233,7 +233,7 @@ static struct spi_board_info spi_board_info[] = {
 static struct platform_device *mini6410_devices[] __initdata = {
 	&mini6410_device_eth,
 	&s3c_device_hsmmc0,
-	&s3c_device_hsmmc1,
+	//&s3c_device_hsmmc1,
 	&s3c_device_ohci,
 	&s3c_device_nand,
 	&s3c_device_fb,
