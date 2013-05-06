@@ -17,6 +17,7 @@
 #include <linux/serial_core.h>
 #include <linux/io.h>
 #include <linux/gpio.h>
+#include <linux/of.h>
 #include <linux/pm_domain.h>
 
 #include <mach/map.h>
@@ -163,6 +164,123 @@ static struct s3c64xx_pm_domain s3c64xx_pm_v = {
 		.power_on = s3c64xx_pd_on,
 	},
 };
+
+#ifdef CONFIG_OF
+static void s3c64xx_add_device_to_domain(struct device *dev)
+{
+	struct device_node *pd_np;
+	int ret;
+
+	if (!dev->of_node)
+		return;
+
+	pd_np = of_parse_phandle(dev->of_node, "samsung,power-domain", 0);
+	if (!pd_np)
+		return;
+
+	dev_dbg(dev, "adding to power domain %s\n", pd_np->name);
+
+	while (1) {
+		ret = pm_genpd_of_add_device(pd_np, dev);
+		if (ret != -EAGAIN)
+			break;
+		cond_resched();
+	}
+
+	pm_genpd_dev_need_restore(dev, true);
+}
+
+static void s3c64xx_remove_device_from_domain(struct device *dev)
+{
+	struct generic_pm_domain *genpd = dev_to_genpd(dev);
+	int ret;
+
+	dev_dbg(dev, "removing from power domain %s\n", genpd->name);
+
+	while (1) {
+		ret = pm_genpd_remove_device(genpd, dev);
+		if (ret != -EAGAIN)
+			break;
+		cond_resched();
+	}
+}
+
+static int s3c64xx_pd_notifier_call(struct notifier_block *nb,
+					unsigned long event, void *data)
+{
+	struct device *dev = data;
+
+	switch (event) {
+	case BUS_NOTIFY_BIND_DRIVER:
+		s3c64xx_add_device_to_domain(dev);
+		break;
+
+	case BUS_NOTIFY_UNBOUND_DRIVER:
+		s3c64xx_remove_device_from_domain(dev);
+		break;
+
+	default:
+		return NOTIFY_DONE;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block s3c64xx_pd_notifier = {
+	.notifier_call = s3c64xx_pd_notifier_call,
+};
+
+static struct of_device_id s3c64xx_pd_matches[] = {
+	{ .compatible = "samsung,s3c6400-domain-v",
+					.data = &s3c64xx_pm_v, },
+	{ .compatible = "samsung,s3c6400-domain-i",
+					.data = &s3c64xx_pm_i, },
+	{ .compatible = "samsung,s3c6400-domain-p",
+					.data = &s3c64xx_pm_p, },
+	{ .compatible = "samsung,s3c6400-domain-f",
+					.data = &s3c64xx_pm_f, },
+	{ .compatible = "samsung,s3c6400-domain-s",
+					.data = &s3c64xx_pm_s, },
+	{ .compatible = "samsung,s3c6400-domain-irom",
+					.data = &s3c64xx_pm_irom, },
+	{ .compatible = "samsung,s3c6410-domain-g",
+					.data = &s3c64xx_pm_g, },
+	{ .compatible = "samsung,s3c6410-domain-etm",
+					.data = &s3c64xx_pm_etm, },
+	{ },
+};
+
+static int s3c64xx_pm_parse_domains(void)
+{
+	const struct of_device_id *match;
+	struct device_node *np;
+
+	for_each_matching_node_and_match(np, s3c64xx_pd_matches, &match) {
+		const struct s3c64xx_pm_domain *template = match->data;
+		struct s3c64xx_pm_domain *pd;
+		int on;
+
+		pd = kmemdup(template, sizeof(*pd), GFP_KERNEL);
+		if (!pd)
+			return -ENOMEM;
+
+		on = __raw_readl(S3C64XX_NORMAL_CFG) & pd->ena;
+
+		pd->pd.of_node = np;
+
+		if (pd->always_on)
+			pm_genpd_init(&pd->pd, &pm_domain_always_on_gov, !on);
+		else
+			pm_genpd_init(&pd->pd, NULL, !on);
+
+		pr_debug("%s: registered domain %s\n", __func__, pd->pd.name);
+	}
+
+	bus_register_notifier(&platform_bus_type, &s3c64xx_pd_notifier);
+
+	return 0;
+}
+#endif
 
 static struct s3c64xx_pm_domain *s3c64xx_pm_domains[] = {
 	&s3c64xx_pm_irom,
@@ -311,6 +429,10 @@ int __init s3c64xx_pm_init(void)
 
 	s3c_pm_init();
 
+#ifdef CONFIG_OF
+	if (of_have_populated_dt())
+		return s3c64xx_pm_parse_domains();
+#endif
 
 	for (i = 0; i < ARRAY_SIZE(s3c64xx_pm_domains); i++) {
 		struct s3c64xx_pm_domain *pd = s3c64xx_pm_domains[i];
