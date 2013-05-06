@@ -42,6 +42,32 @@
 		#size-cells = <1>;
 		ranges;
 
+		power_domains: power-domains {
+			domain_v: domain-v {
+				compatible = "samsung,s3c6400-domain-v";
+			};
+
+			domain_i: domain-i {
+				compatible = "samsung,s3c6400-domain-i";
+			};
+
+			domain_p: domain-p {
+				compatible = "samsung,s3c6400-domain-p";
+			};
+
+			domain_f: domain-f {
+				compatible = "samsung,s3c6400-domain-f";
+			};
+
+			domain_s: domain-s {
+				compatible = "samsung,s3c6400-domain-s";
+			};
+
+			domain_irom: domain-irom {
+				compatible = "samsung,s3c6400-domain-irom";
+			};
+		};
+
 		vic0: interrupt-controller@71200000 {
 			compatible = "arm,pl192-vic";
 			interrupt-controller;

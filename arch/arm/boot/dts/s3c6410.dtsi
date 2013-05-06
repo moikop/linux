@@ -26,6 +26,16 @@
 	};
 };
 
+&power_domains {
+	domain_g: domain-g {
+		compatible = "samsung,s3c6410-domain-g";
+	};
+
+	domain_etm: domain-etm {
+		compatible = "samsung,s3c6410-domain-etm";
+	};
+};
+
 &vic0 {
 	valid-mask = <0xffffff7f>;
 	valid-wakeup-mask = <0x00200004>;
