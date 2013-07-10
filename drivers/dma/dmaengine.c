@@ -491,6 +491,9 @@ static struct dma_chan *private_candidate(const dma_cap_mask_t *mask,
 				return NULL;
 		}
 
+	if (!fn)
+		fn = dev->filter_fn;
+
 	list_for_each_entry(chan, &dev->channels, device_node) {
 		if (chan->client_count) {
 			pr_debug("%s: %s busy\n",

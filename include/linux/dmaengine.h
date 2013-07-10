@@ -615,6 +615,7 @@ struct dma_device {
 		unsigned long flags);
 	int (*device_control)(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
 		unsigned long arg);
+	bool (*filter_fn)(struct dma_chan *chan, void *chan_id);
 
 	enum dma_status (*device_tx_status)(struct dma_chan *chan,
 					    dma_cookie_t cookie,

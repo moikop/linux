@@ -2105,6 +2105,7 @@ static int pl08x_probe(struct amba_device *adev, const struct amba_id *id)
 	pl08x->slave.device_prep_slave_sg = pl08x_prep_slave_sg;
 	pl08x->slave.device_prep_dma_cyclic = pl08x_prep_dma_cyclic;
 	pl08x->slave.device_control = pl08x_control;
+	pl08x->slave.filter_fn = pl08x_filter_id;
 
 	/* Get the platform data */
 	pl08x->pd = dev_get_platdata(&adev->dev);
