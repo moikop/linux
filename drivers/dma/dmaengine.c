@@ -590,11 +590,12 @@ struct dma_chan *__dma_request_channel(const dma_cap_mask_t *mask,
 EXPORT_SYMBOL_GPL(__dma_request_channel);
 
 /**
- * dma_request_slave_channel - try to allocate an exclusive slave channel
+ * dma_request_channel_for_device - try to allocate an exclusive slave channel
  * @dev:	pointer to client device structure
  * @name:	slave channel name
  */
-struct dma_chan *dma_request_slave_channel(struct device *dev, const char *name)
+struct dma_chan *dma_request_channel_for_device(const dma_cap_mask_t *mask,
+					   struct device *dev, const char *name)
 {
 	/* If device-tree is present get slave info from here */
 	if (dev->of_node)
@@ -604,9 +605,9 @@ struct dma_chan *dma_request_slave_channel(struct device *dev, const char *name)
 	if (ACPI_HANDLE(dev))
 		return acpi_dma_request_slave_chan_by_name(dev, name);
 
-	return NULL;
+	return __dma_request_channel(mask, NULL, (void *)name);
 }
-EXPORT_SYMBOL_GPL(dma_request_slave_channel);
+EXPORT_SYMBOL_GPL(dma_request_channel_for_device);
 
 void dma_release_channel(struct dma_chan *chan)
 {
