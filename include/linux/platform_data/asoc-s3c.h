@@ -8,6 +8,8 @@
  * published by the Free Software Foundation.
  */
 
+#include <linux/dmaengine.h>
+
 /* The machine init code calls s3c*_ac97_setup_gpio with
  * one of these defines in order to select appropriate bank
  * of GPIO for AC97 pins
@@ -51,4 +53,5 @@ struct s3c_audio_pdata {
 	union {
 		struct samsung_i2s i2s;
 	} type;
+	dma_filter_fn dma_filter;
 };

@@ -19,14 +19,12 @@
 #include <linux/of_gpio.h>
 #include <linux/pm_runtime.h>
 
+#include <sound/dmaengine_pcm.h>
 #include <sound/soc.h>
 #include <sound/pcm_params.h>
 
-#include <mach/dma.h>
-
 #include <linux/platform_data/asoc-s3c.h>
 
-#include "dma.h"
 #include "idma.h"
 #include "i2s.h"
 #include "i2s-regs.h"
@@ -73,9 +71,9 @@ struct i2s_dai {
 	/* Driver for this DAI */
 	struct snd_soc_dai_driver i2s_dai_drv;
 	/* DMA parameters */
-	struct s3c_dma_params dma_playback;
-	struct s3c_dma_params dma_capture;
-	struct s3c_dma_params idma_playback;
+	struct snd_dmaengine_pcm_config pcm_config;
+	struct snd_dmaengine_dai_dma_data dma_playback;
+	struct snd_dmaengine_dai_dma_data dma_capture;
 	u32	quirks;
 	u32	suspend_i2smod;
 	u32	suspend_i2scon;
@@ -85,6 +83,26 @@ struct i2s_dai {
 
 /* Lock for cross i/f checks */
 static DEFINE_SPINLOCK(lock);
+
+/* DMA engine PCM configuration */
+static const struct snd_pcm_hardware pcm_hardware = {
+	.info			= SNDRV_PCM_INFO_INTERLEAVED |
+					SNDRV_PCM_INFO_BLOCK_TRANSFER |
+					SNDRV_PCM_INFO_MMAP |
+					SNDRV_PCM_INFO_MMAP_VALID,
+	.formats		= SNDRV_PCM_FMTBIT_S16_LE |
+					SNDRV_PCM_FMTBIT_U16_LE |
+					SNDRV_PCM_FMTBIT_U8 |
+					SNDRV_PCM_FMTBIT_S8,
+	.channels_min		= 2,
+	.channels_max		= 2,
+	.buffer_bytes_max	= SZ_128K,
+	.period_bytes_min	= PAGE_SIZE,
+	.period_bytes_max	= PAGE_SIZE*2,
+	.periods_min		= 2,
+	.periods_max		= 128,
+	.fifo_size		= 32,
+};
 
 /* If this is the 'overlay' stereo DAI */
 static inline bool is_secondary(struct i2s_dai *i2s)
@@ -645,15 +663,19 @@ static int i2s_hw_params(struct snd_pcm_substream *substream,
 		break;
 	case 2:
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
-			i2s->dma_playback.dma_size = 4;
+			i2s->dma_playback.addr_width =
+						DMA_SLAVE_BUSWIDTH_4_BYTES;
 		else
-			i2s->dma_capture.dma_size = 4;
+			i2s->dma_capture.addr_width =
+						DMA_SLAVE_BUSWIDTH_4_BYTES;
 		break;
 	case 1:
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
-			i2s->dma_playback.dma_size = 2;
+			i2s->dma_playback.addr_width =
+						DMA_SLAVE_BUSWIDTH_2_BYTES;
 		else
-			i2s->dma_capture.dma_size = 2;
+			i2s->dma_capture.addr_width =
+						DMA_SLAVE_BUSWIDTH_2_BYTES;
 
 		break;
 	default:
@@ -979,8 +1001,7 @@ static int samsung_i2s_dai_probe(struct snd_soc_dai *dai)
 		writel(CON_RSTCLR, i2s->addr + I2SCON);
 
 	if (i2s->quirks & QUIRK_SEC_DAI)
-		idma_reg_addr_init(i2s->addr,
-					i2s->sec_dai->idma_playback.dma_addr);
+		idma_reg_addr_init(i2s->addr, i2s->sec_dai->dma_playback.addr);
 
 probe_exit:
 	/* Reset any constraint on RFS and BFS */
@@ -1146,7 +1167,15 @@ static int samsung_i2s_probe(struct platform_device *pdev)
 		devm_snd_soc_register_component(&sec_dai->pdev->dev,
 						&samsung_i2s_component,
 						&sec_dai->i2s_dai_drv, 1);
-		samsung_asoc_dma_platform_register(&pdev->dev);
+
+		pri_dai->pcm_config.pcm_hardware = &pcm_hardware;
+		sec_dai->pcm_config.prepare_slave_config =
+					snd_dmaengine_pcm_prepare_slave_config;
+		sec_dai->pcm_config.prealloc_buffer_size =
+					pcm_hardware.buffer_bytes_max;
+
+		snd_dmaengine_pcm_register(&pdev->dev, &sec_dai->pcm_config,
+						SND_DMAENGINE_PCM_FLAG_COMPAT);
 		return 0;
 	}
 
@@ -1163,7 +1192,7 @@ static int samsung_i2s_probe(struct platform_device *pdev)
 				"Unable to get I2S-TX dma resource\n");
 			return -ENXIO;
 		}
-		pri_dai->dma_playback.channel = res->start;
+		pri_dai->dma_playback.filter_data = (void *)res->start;
 
 		res = platform_get_resource(pdev, IORESOURCE_DMA, 1);
 		if (!res) {
@@ -1171,12 +1200,14 @@ static int samsung_i2s_probe(struct platform_device *pdev)
 				"Unable to get I2S-RX dma resource\n");
 			return -ENXIO;
 		}
-		pri_dai->dma_capture.channel = res->start;
+		pri_dai->dma_capture.filter_data = (void *)res->start;
 
 		if (i2s_pdata == NULL) {
 			dev_err(&pdev->dev, "Can't work without s3c_audio_pdata\n");
 			return -EINVAL;
 		}
+
+		pri_dai->pcm_config.compat_filter_fn = i2s_pdata->dma_filter;
 
 		if (&i2s_pdata->type)
 			i2s_cfg = &i2s_pdata->type.i2s;
@@ -1210,16 +1241,12 @@ static int samsung_i2s_probe(struct platform_device *pdev)
 	}
 	regs_base = res->start;
 
-	pri_dai->dma_playback.dma_addr = regs_base + I2STXD;
-	pri_dai->dma_capture.dma_addr = regs_base + I2SRXD;
-	pri_dai->dma_playback.client =
-		(struct s3c2410_dma_client *)&pri_dai->dma_playback;
-	pri_dai->dma_playback.ch_name = "tx";
-	pri_dai->dma_capture.client =
-		(struct s3c2410_dma_client *)&pri_dai->dma_capture;
-	pri_dai->dma_capture.ch_name = "rx";
-	pri_dai->dma_playback.dma_size = 4;
-	pri_dai->dma_capture.dma_size = 4;
+	pri_dai->dma_playback.addr = regs_base + I2STXD;
+	pri_dai->dma_capture.addr = regs_base + I2SRXD;
+	pri_dai->dma_playback.addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
+	pri_dai->dma_capture.addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
+	pri_dai->dma_playback.maxburst = 1;
+	pri_dai->dma_capture.maxburst = 1;
 	pri_dai->base = regs_base;
 	pri_dai->quirks = quirks;
 
@@ -1233,21 +1260,22 @@ static int samsung_i2s_probe(struct platform_device *pdev)
 			ret = -ENOMEM;
 			goto err;
 		}
-		sec_dai->dma_playback.dma_addr = regs_base + I2STXDS;
-		sec_dai->dma_playback.client =
-			(struct s3c2410_dma_client *)&sec_dai->dma_playback;
-		sec_dai->dma_playback.ch_name = "tx-sec";
+		sec_dai->dma_playback.addr = regs_base + I2STXDS;
 
 		if (!np) {
 			res = platform_get_resource(pdev, IORESOURCE_DMA, 2);
 			if (res)
-				sec_dai->dma_playback.channel = res->start;
+				sec_dai->dma_playback.filter_data =
+							(void *)res->start;
+
+			sec_dai->pcm_config.compat_filter_fn =
+							i2s_pdata->dma_filter;
 		}
 
-		sec_dai->dma_playback.dma_size = 4;
+		sec_dai->dma_playback.addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
+		sec_dai->dma_playback.maxburst = 1;
 		sec_dai->base = regs_base;
 		sec_dai->quirks = quirks;
-		sec_dai->idma_playback.dma_addr = idma_addr;
 		sec_dai->pri_dai = pri_dai;
 		pri_dai->sec_dai = sec_dai;
 	}
@@ -1264,7 +1292,14 @@ static int samsung_i2s_probe(struct platform_device *pdev)
 
 	pm_runtime_enable(&pdev->dev);
 
-	samsung_asoc_dma_platform_register(&pdev->dev);
+	pri_dai->pcm_config.pcm_hardware = &pcm_hardware;
+	pri_dai->pcm_config.prepare_slave_config =
+					snd_dmaengine_pcm_prepare_slave_config;
+	pri_dai->pcm_config.prealloc_buffer_size =
+					pcm_hardware.buffer_bytes_max;
+
+	snd_dmaengine_pcm_register(&pdev->dev, &pri_dai->pcm_config,
+						SND_DMAENGINE_PCM_FLAG_COMPAT);
 
 	return 0;
 err:
@@ -1294,7 +1329,7 @@ static int samsung_i2s_remove(struct platform_device *pdev)
 	i2s->pri_dai = NULL;
 	i2s->sec_dai = NULL;
 
-	samsung_asoc_dma_platform_unregister(&pdev->dev);
+	snd_dmaengine_pcm_unregister(&pdev->dev);
 
 	return 0;
 }

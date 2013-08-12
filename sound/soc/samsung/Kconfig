@@ -8,8 +8,12 @@ config SND_SOC_SAMSUNG
 	  the Samsung SoCs' Audio interfaces. You will also need to
 	  select the audio interfaces to support below.
 
+config SND_S3C24XX_DMA
+	tristate
+
 config SND_S3C24XX_I2S
 	tristate
+	select SND_S3C24XX_DMA
 	select S3C2410_DMA
 
 config SND_S3C_I2SV2_SOC
@@ -18,21 +22,26 @@ config SND_S3C_I2SV2_SOC
 config SND_S3C2412_SOC_I2S
 	tristate
 	select SND_S3C_I2SV2_SOC
+	select SND_S3C24XX_DMA
 	select S3C2410_DMA
 
 config SND_SAMSUNG_PCM
+	select SND_S3C24XX_DMA
 	tristate
 
 config SND_SAMSUNG_AC97
 	tristate
+	select SND_S3C24XX_DMA
 	select SND_SOC_AC97_BUS
 
 config SND_SAMSUNG_SPDIF
 	tristate
+	select SND_S3C24XX_DMA
 	select SND_SOC_SPDIF
 
 config SND_SAMSUNG_I2S
 	tristate
+	select SND_SOC_GENERIC_DMAENGINE_PCM
 
 config SND_SOC_SAMSUNG_NEO1973_WM8753
 	tristate "Audio support for Openmoko Neo1973 Smartphones (GTA02)"
