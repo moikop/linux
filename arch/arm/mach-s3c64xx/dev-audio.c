@@ -59,6 +59,9 @@ static struct resource s3c64xx_iis0_resource[] = {
 
 static struct s3c_audio_pdata i2sv3_pdata = {
 	.cfg_gpio = s3c64xx_i2s_cfg_gpio,
+#ifdef CONFIG_S3C64XX_PL080
+	.dma_filter = pl08x_filter_id,
+#endif
 };
 
 struct platform_device s3c64xx_device_iis0 = {
@@ -102,6 +105,9 @@ static struct s3c_audio_pdata i2sv4_pdata = {
 			.quirks = QUIRK_PRI_6CHAN,
 		},
 	},
+#ifdef CONFIG_S3C64XX_PL080
+	.dma_filter = pl08x_filter_id,
+#endif
 };
 
 struct platform_device s3c64xx_device_iisv4 = {
